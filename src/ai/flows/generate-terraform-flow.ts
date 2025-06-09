@@ -35,20 +35,20 @@ function sanitizeForTerraformResourceName(name: string): string {
   if (!name) return '';
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9_]/g, '_') 
-    .replace(/^_+|_+$/g, ''); 
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 /**
- * Converts a topic string by Unicode-escaping non-alphanumeric characters, excluding slashes.
- * ASCII letters, digits, and slashes (/) are kept as is. Other characters are converted to \uXXXX.
+ * Converts a topic string by Unicode-escaping non-alphanumeric characters, excluding slashes and asterisks.
+ * ASCII letters, digits, slashes (/), and asterisks (*) are kept as is. Other characters are converted to \uXXXX.
  * @param topicValue The topic string.
  * @returns The Unicode-escaped topic string.
  */
 function convertTopicToUnicodeEscaped(topicValue: string): string {
   let result = '';
   for (const char of topicValue) {
-    if (/[a-zA-Z0-9/]/.test(char)) { // Keep alphanumeric and slashes
+    if (/[a-zA-Z0-9/*]/.test(char)) { // Keep alphanumeric, slashes, and asterisks
       result += char;
     } else {
       const unicodeHex = char.charCodeAt(0).toString(16).padStart(4, '0');
@@ -65,29 +65,34 @@ export async function generateTerraform(input: TerraformGenerationInput): Promis
 const generateTerraformFlow = ai.defineFlow(
   {
     name: 'generateTerraformFlow',
-    inputSchema: profileConfiguratorSchema, 
+    inputSchema: profileConfiguratorSchema,
     outputSchema: TerraformGenerationOutputSchema,
   },
   async (input: TerraformGenerationInput) => {
     const sanitizedAclProfileName = sanitizeForTerraformResourceName(input.aclProfileName);
     const sanitizedAuthProfileName = sanitizeForTerraformResourceName(input.authProfileName);
     const sanitizedQueueName = input.queueName ? sanitizeForTerraformResourceName(input.queueName) : undefined;
+    const msgVpnNameValue = "solacebroker_msg_vpn.NEMS_01.msg_vpn_name";
 
     const aclProfileResource = `
 resource "solacebroker_msg_vpn_acl_profile" "${sanitizedAclProfileName}" {
   acl_profile_name                     = "${input.aclProfileName}"
   client_connect_default_action        = "allow"
-  msg_vpn_name                         =  ""
+  msg_vpn_name                         = ${msgVpnNameValue}
   subscribe_share_name_default_action  = "disallow"
 }`.trim();
+
+    const clientProfileNameValue = input.applicationType === "publisher"
+      ? "solacebroker_msg_vpn_client_profile.NEMS_01_publisher-client-profile.client_profile_name"
+      : "solacebroker_msg_vpn_client_profile.NEMS_01_subscriber-client-profile.client_profile_name";
 
     const authGroupResource = `
 resource "solacebroker_msg_vpn_authorization_group" "${sanitizedAuthProfileName}" {
   acl_profile_name          = solacebroker_msg_vpn_acl_profile.${sanitizedAclProfileName}.acl_profile_name
   authorization_group_name  = "${input.authProfileName}"
-  client_profile_name       = ""
+  client_profile_name       = ${clientProfileNameValue}
   enabled                   = true
-  msg_vpn_name              = ""
+  msg_vpn_name              = ${msgVpnNameValue}
 }`.trim();
 
     const topicExceptionResources: string[] = [];
@@ -98,7 +103,7 @@ resource "solacebroker_msg_vpn_authorization_group" "${sanitizedAuthProfileName}
         const exceptionResource = `
 resource "solacebroker_msg_vpn_acl_profile_publish_topic_exception" "${resourceName}" {
   acl_profile_name                = "${input.aclProfileName}"
-  msg_vpn_name                    = ""
+  msg_vpn_name                    = ${msgVpnNameValue}
   publish_topic_exception         = "${convertedTopicValue}"
   publish_topic_exception_syntax  = "smf"
 }`.trim();
@@ -111,7 +116,7 @@ resource "solacebroker_msg_vpn_acl_profile_publish_topic_exception" "${resourceN
         const exceptionResource = `
 resource "solacebroker_msg_vpn_acl_profile_subscribe_topic_exception" "${resourceName}" {
   acl_profile_name                  = "${input.aclProfileName}"
-  msg_vpn_name                      = ""
+  msg_vpn_name                      = ${msgVpnNameValue}
   subscribe_topic_exception         = "${convertedTopicValue}"
   subscribe_topic_exception_syntax  = "smf"
 }`.trim();
@@ -130,9 +135,9 @@ resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
   event_msg_spool_usage_threshold                = { clear_percent = 18, set_percent = 25 }
   event_reject_low_priority_msg_limit_threshold  = { clear_percent = 60, set_percent = 80 }
   ingress_enabled                                = true
-  max_msg_size                                   = 1000000 # 1e+06 in HCL
+  max_msg_size                                   = 1000000
   max_msg_spool_usage                            = 500
-  msg_vpn_name                                   = ""
+  msg_vpn_name                                   = ${msgVpnNameValue}
   owner                                          = "${input.ownerId}"
   queue_name                                     = "${input.queueName}"
 }`.trim();
@@ -142,7 +147,7 @@ resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
         const resourceName = `${sanitizedQueueName}_subscription_${index}`;
         const subscriptionResource = `
 resource "solacebroker_msg_vpn_queue_subscription" "${resourceName}" {
-  msg_vpn_name        = ""
+  msg_vpn_name        = ${msgVpnNameValue}
   queue_name          = "${input.queueName}"
   subscription_topic  = "${convertedTopicValue}"
 }`.trim();
@@ -151,8 +156,8 @@ resource "solacebroker_msg_vpn_queue_subscription" "${resourceName}" {
     }
 
     const allResources = [
-      aclProfileResource, 
-      authGroupResource, 
+      aclProfileResource,
+      authGroupResource,
       ...topicExceptionResources
     ];
     if (queueResource) {
@@ -161,7 +166,7 @@ resource "solacebroker_msg_vpn_queue_subscription" "${resourceName}" {
     if (queueSubscriptionResources.length > 0) {
       allResources.push(...queueSubscriptionResources);
     }
-    
+
     const fullTerraformConfig = allResources.join('\n\n');
 
     return {
