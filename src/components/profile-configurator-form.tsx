@@ -1,8 +1,9 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, FileCode } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { profileConfiguratorSchema, type ProfileConfiguratorValues } from "@/lib/profile-configurator-schema";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import { generateTerraform } from "@/ai/flows/generate-terraform-flow";
 
 
 export default function ProfileConfiguratorForm() {
@@ -33,7 +35,7 @@ export default function ProfileConfiguratorForm() {
       queueName: "",
       topics: [{ value: "" }],
     },
-    mode: "onChange", // Enable real-time validation
+    mode: "onChange",
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -43,16 +45,35 @@ export default function ProfileConfiguratorForm() {
 
   const applicationType = form.watch("applicationType");
 
-  function onSubmit(values: ProfileConfiguratorValues) {
-    console.log(values);
-    toast({
-      title: "Profile Configuration Submitted",
-      description: (
-        <pre className="mt-2 w-[340px] rounded-md bg-slate-950 p-4">
-          <code className="text-white font-code">{JSON.stringify(values, null, 2)}</code>
-        </pre>
-      ),
-    });
+  async function onSubmit(values: ProfileConfiguratorValues) {
+    try {
+      const result = await generateTerraform(values);
+      toast({
+        title: (
+          <div className="flex items-center">
+            <FileCode className="mr-2 h-5 w-5 text-green-500" />
+            Terraform Configuration Generated
+          </div>
+        ),
+        description: (
+          <pre className="mt-2 w-full rounded-md bg-slate-950 p-4 text-xs overflow-x-auto max-h-[400px]">
+            <code className="text-white font-code">{result.fullTerraformConfig}</code>
+          </pre>
+        ),
+        duration: 30000, 
+      });
+    } catch (error) {
+      console.error("Error generating Terraform:", error);
+      let errorMessage = "An unknown error occurred.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast({
+        variant: "destructive",
+        title: "Error Generating Configuration",
+        description: `Failed to generate Terraform: ${errorMessage}`,
+      });
+    }
   }
 
   return (
@@ -60,7 +81,7 @@ export default function ProfileConfiguratorForm() {
     <Card className="w-full max-w-2xl shadow-xl">
       <CardHeader>
         <CardTitle className="text-3xl font-headline tracking-tight">Profile Configurator</CardTitle>
-        <CardDescription>Fill in the details below to configure your application profile.</CardDescription>
+        <CardDescription>Fill in the details below to configure your application profile and generate Terraform.</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -113,7 +134,7 @@ export default function ProfileConfiguratorForm() {
                     Auth Profile Name
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter auth profile name" {...field} />
+                    <Input placeholder="Enter auth profile name (e.g., My Auth Group)" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -130,7 +151,7 @@ export default function ProfileConfiguratorForm() {
                     ACL Profile Name
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter ACL profile name" {...field} />
+                    <Input placeholder="Enter ACL profile name (e.g., My ACL Profile)" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -171,7 +192,7 @@ export default function ProfileConfiguratorForm() {
                   render={({ field }) => (
                     <FormItem className="flex items-center space-x-2 mb-2">
                       <FormControl>
-                        <Input placeholder={`Topic ${index + 1}`} {...field} />
+                        <Input placeholder={`Topic ${index + 1} (e.g., data/events/*)`} {...field} />
                       </FormControl>
                       {fields.length > 1 && (
                         <Button
@@ -207,7 +228,6 @@ export default function ProfileConfiguratorForm() {
             
             <FormMessage>{form.formState.errors.topics?.root?.message}</FormMessage>
 
-
           </form>
         </Form>
       </CardContent>
@@ -218,7 +238,7 @@ export default function ProfileConfiguratorForm() {
           className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-ring"
           disabled={form.formState.isSubmitting}
         >
-          {form.formState.isSubmitting ? "Submitting..." : "Configure Profile"}
+          {form.formState.isSubmitting ? "Generating..." : "Generate Terraform"}
         </Button>
       </CardFooter>
     </Card>
