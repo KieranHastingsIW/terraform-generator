@@ -3,7 +3,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, FileCode } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, FileCode, Copy } from "lucide-react";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { profileConfiguratorSchema, type ProfileConfiguratorValues } from "@/lib/profile-configurator-schema";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
@@ -26,6 +28,8 @@ import { generateTerraform } from "@/ai/flows/generate-terraform-flow";
 
 export default function ProfileConfiguratorForm() {
   const { toast } = useToast();
+  const [generatedTerraform, setGeneratedTerraform] = React.useState<string | null>(null);
+
   const form = useForm<ProfileConfiguratorValues>({
     resolver: zodResolver(profileConfiguratorSchema),
     defaultValues: {
@@ -46,8 +50,10 @@ export default function ProfileConfiguratorForm() {
   const applicationType = form.watch("applicationType");
 
   async function onSubmit(values: ProfileConfiguratorValues) {
+    setGeneratedTerraform(null); // Clear previous results
     try {
       const result = await generateTerraform(values);
+      setGeneratedTerraform(result.fullTerraformConfig);
       toast({
         title: (
           <div className="flex items-center">
@@ -55,12 +61,8 @@ export default function ProfileConfiguratorForm() {
             Terraform Configuration Generated
           </div>
         ),
-        description: (
-          <pre className="mt-2 w-full rounded-md bg-slate-950 p-4 text-xs overflow-x-auto max-h-[400px]">
-            <code className="text-white font-code">{result.fullTerraformConfig}</code>
-          </pre>
-        ),
-        duration: 30000, 
+        description: "The configuration is now displayed below and can be copied.",
+        duration: 5000,
       });
     } catch (error) {
       console.error("Error generating Terraform:", error);
@@ -73,8 +75,20 @@ export default function ProfileConfiguratorForm() {
         title: "Error Generating Configuration",
         description: `Failed to generate Terraform: ${errorMessage}`,
       });
+      setGeneratedTerraform(null);
     }
   }
+
+  const handleCopy = async () => {
+    if (generatedTerraform) {
+      try {
+        await navigator.clipboard.writeText(generatedTerraform);
+        toast({ title: "Copied to clipboard!", duration: 3000 });
+      } catch (err) {
+        toast({ variant: "destructive", title: "Failed to copy", description: "Could not copy text to clipboard.", duration: 3000 });
+      }
+    }
+  };
 
   return (
     <>
@@ -242,7 +256,31 @@ export default function ProfileConfiguratorForm() {
         </Button>
       </CardFooter>
     </Card>
+
+    {generatedTerraform && (
+      <Card className="mt-8 w-full max-w-2xl shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-2xl font-headline tracking-tight">
+            Generated Terraform
+            <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Copy Terraform code">
+              <Copy className="h-4 w-4" />
+            </Button>
+          </CardTitle>
+          <CardDescription>Review and copy the generated Terraform configuration below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            readOnly
+            value={generatedTerraform}
+            rows={15}
+            className="font-code text-xs bg-muted/20 border-border p-3 rounded-md"
+            aria-label="Generated Terraform configuration"
+          />
+        </CardContent>
+      </Card>
+    )}
     <Toaster />
     </>
   );
 }
+
