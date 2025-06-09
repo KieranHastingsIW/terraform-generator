@@ -40,19 +40,18 @@ function sanitizeForTerraformResourceName(name: string): string {
 }
 
 /**
- * Converts a topic string by Unicode-escaping non-alphanumeric characters, excluding slashes and asterisks.
- * ASCII letters, digits, slashes (/), and asterisks (*) are kept as is. Other characters are converted to \uXXXX.
+ * Converts only the ">" character in a topic string to its Unicode escape sequence "\u003e".
+ * All other characters are preserved as is.
  * @param topicValue The topic string.
- * @returns The Unicode-escaped topic string.
+ * @returns The topic string with ">" converted.
  */
 function convertTopicToUnicodeEscaped(topicValue: string): string {
   let result = '';
   for (const char of topicValue) {
-    if (/[a-zA-Z0-9/*]/.test(char)) { // Keep alphanumeric, slashes, and asterisks
-      result += char;
+    if (char === '>') {
+      result += '\\u003e';
     } else {
-      const unicodeHex = char.charCodeAt(0).toString(16).padStart(4, '0');
-      result += `\\u${unicodeHex}`;
+      result += char;
     }
   }
   return result;
