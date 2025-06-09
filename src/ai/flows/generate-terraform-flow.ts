@@ -40,7 +40,7 @@ function sanitizeForTerraformResourceName(name: string): string {
 }
 
 /**
- * Converts only the ">" character in a topic string to its Unicode escape sequence "\u003e".
+ * Converts only the ">" character in a topic string to its Unicode escape sequence "\\u003e".
  * All other characters are preserved as is.
  * @param topicValue The topic string.
  * @returns The topic string with ">" converted.
@@ -134,7 +134,7 @@ resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
   event_msg_spool_usage_threshold                = { clear_percent = 18, set_percent = 25 }
   event_reject_low_priority_msg_limit_threshold  = { clear_percent = 60, set_percent = 80 }
   ingress_enabled                                = true
-  max_msg_size                                   = 1000000
+  max_msg_size                                   = 1e+06
   max_msg_spool_usage                            = 500
   msg_vpn_name                                   = ${msgVpnNameValue}
   owner                                          = "${input.ownerId}"
