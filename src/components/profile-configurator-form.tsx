@@ -3,7 +3,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, FileCode, Copy } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, FileCode, Copy, UserCircle } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { profileConfiguratorSchema, type ProfileConfiguratorValues } from "@/lib/profile-configurator-schema";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
-import { generateTerraform } from "@/ai/flows/generate-terraform-flow";
+import { generateTerraform, type TerraformGenerationOutput } from "@/ai/flows/generate-terraform-flow";
 
 
 export default function ProfileConfiguratorForm() {
@@ -37,9 +37,10 @@ export default function ProfileConfiguratorForm() {
       authProfileName: "",
       aclProfileName: "",
       queueName: "",
+      ownerId: "",
       topics: [{ value: "" }],
     },
-    mode: "onChange",
+    mode: "onChange", // Real-time validation
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -52,7 +53,7 @@ export default function ProfileConfiguratorForm() {
   async function onSubmit(values: ProfileConfiguratorValues) {
     setGeneratedTerraform(null); // Clear previous results
     try {
-      const result = await generateTerraform(values);
+      const result: TerraformGenerationOutput = await generateTerraform(values);
       setGeneratedTerraform(result.fullTerraformConfig);
       toast({
         title: (
@@ -111,7 +112,14 @@ export default function ProfileConfiguratorForm() {
                   </FormLabel>
                   <FormControl>
                     <RadioGroup
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Reset queueName and ownerId if switching away from subscriber
+                        if (value !== "subscriber") {
+                          form.setValue("queueName", "", { shouldValidate: true });
+                          form.setValue("ownerId", "", { shouldValidate: true });
+                        }
+                      }}
                       defaultValue={field.value}
                       className="flex flex-col space-y-2 pt-1 sm:flex-row sm:space-y-0 sm:space-x-6"
                     >
@@ -173,22 +181,40 @@ export default function ProfileConfiguratorForm() {
             />
 
             {applicationType === "subscriber" && (
-              <FormField
-                control={form.control}
-                name="queueName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center text-base">
-                      <ListChecks className="mr-2 h-5 w-5 text-primary" />
-                      Queue Name
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter queue name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <>
+                <FormField
+                  control={form.control}
+                  name="queueName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center text-base">
+                        <ListChecks className="mr-2 h-5 w-5 text-primary" />
+                        Queue Name
+                      </FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter queue name" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="ownerId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center text-base">
+                        <UserCircle className="mr-2 h-5 w-5 text-primary" />
+                        Owner ID
+                      </FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter owner ID for the queue" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
             )}
 
             <Separator />
@@ -225,7 +251,7 @@ export default function ProfileConfiguratorForm() {
                   )}
                 />
               ))}
-               {form.formState.errors.topics && typeof form.formState.errors.topics !== 'object' && (
+               {form.formState.errors.topics && typeof form.formState.errors.topics !== 'object' && !Array.isArray(form.formState.errors.topics) && (
                 <p className="text-sm font-medium text-destructive">{form.formState.errors.topics.message}</p>
               )}
               <Button
@@ -272,7 +298,7 @@ export default function ProfileConfiguratorForm() {
           <Textarea
             readOnly
             value={generatedTerraform}
-            rows={15}
+            rows={20} 
             className="font-code text-xs bg-muted/20 border-border p-3 rounded-md"
             aria-label="Generated Terraform configuration"
           />
@@ -283,4 +309,3 @@ export default function ProfileConfiguratorForm() {
     </>
   );
 }
-
