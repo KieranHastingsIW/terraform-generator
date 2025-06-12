@@ -3,7 +3,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy, Loader2, RefreshCw } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,13 @@ import { profileConfiguratorSchema, type ProfileConfiguratorValues } from "@/lib
 import { generateTerraformConfig, type TerraformGenerationOutput } from "@/lib/terraform-generator";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import { fetchNewClientId } from "@/services/keycloak-service";
 
 
 export default function ProfileConfiguratorForm() {
   const { toast } = useToast();
   const [generatedTerraform, setGeneratedTerraform] = React.useState<TerraformGenerationOutput | null>(null);
+  const [isFetchingOwnerId, setIsFetchingOwnerId] = React.useState(false);
 
   const form = useForm<ProfileConfiguratorValues>({
     resolver: zodResolver(profileConfiguratorSchema),
@@ -40,7 +42,7 @@ export default function ProfileConfiguratorForm() {
       ownerId: "",
       topics: [{ value: "" }],
     },
-    mode: "onChange", 
+    mode: "onChange",
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -50,8 +52,58 @@ export default function ProfileConfiguratorForm() {
 
   const applicationType = form.watch("applicationType");
 
+  const handleFetchOwnerId = async () => {
+    setIsFetchingOwnerId(true);
+    form.setValue("ownerId", "", { shouldValidate: true }); 
+    setGeneratedTerraform(null);
+    try {
+      const clientId = await fetchNewClientId();
+      form.setValue("ownerId", clientId, { shouldValidate: true });
+      toast({
+        title: "Owner ID Fetched",
+        description: "Owner ID has been populated.",
+        duration: 3000,
+      });
+    } catch (error) {
+      let errorMessage = "Failed to fetch Owner ID from Keycloak.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast({
+        title: "Error Fetching Owner ID",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 5000,
+      });
+      form.setValue("ownerId", "Error fetching ID", { shouldValidate: false });
+    } finally {
+      setIsFetchingOwnerId(false);
+    }
+  };
+
+
+  async function handleApplicationTypeChange(value: "publisher" | "subscriber" | undefined) {
+    form.setValue("applicationType", value, { shouldValidate: true });
+    setGeneratedTerraform(null);
+
+    if (value !== "subscriber") {
+      form.setValue("queueName", "", { shouldValidate: true });
+      // Keep ownerId if already fetched or entered, as it might be relevant for publisher display
+    }
+  }
+
+
   function onSubmit(values: ProfileConfiguratorValues) {
     console.log("Form values for Terraform generation:", values);
+    if (applicationType === "subscriber" && values.ownerId === "Error fetching ID") {
+        toast({
+            title: "Cannot Generate Terraform",
+            description: "Owner ID could not be fetched for Subscriber. Please enter a valid Owner ID or try fetching again.",
+            variant: "destructive",
+            duration: 5000,
+        });
+        return;
+    }
     try {
       const tfOutput = generateTerraformConfig(values);
       setGeneratedTerraform(tfOutput);
@@ -89,6 +141,8 @@ export default function ProfileConfiguratorForm() {
     }
   };
 
+  const ownerIdPlaceholder = "Enter Owner ID or Fetch";
+
 
   return (
     <>
@@ -111,13 +165,8 @@ export default function ProfileConfiguratorForm() {
                   </FormLabel>
                   <FormControl>
                     <RadioGroup
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        if (value !== "subscriber") {
-                          form.setValue("queueName", "", { shouldValidate: true });
-                          form.setValue("ownerId", "", { shouldValidate: true });
-                        }
-                         setGeneratedTerraform(null); // Clear previous results on type change
+                      onValueChange={(type) => {
+                        handleApplicationTypeChange(type as "publisher" | "subscriber");
                       }}
                       defaultValue={field.value}
                       className="flex flex-col space-y-2 pt-1 sm:flex-row sm:space-y-0 sm:space-x-6"
@@ -180,41 +229,63 @@ export default function ProfileConfiguratorForm() {
             />
 
             {applicationType === "subscriber" && (
-              <>
-                <FormField
-                  control={form.control}
-                  name="queueName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center text-base">
-                        <ListChecks className="mr-2 h-5 w-5 text-primary" />
-                        Queue Name
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter queue name" {...field} onChange={(e) => { field.onChange(e); setGeneratedTerraform(null);}}/>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="ownerId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center text-base">
-                        <UserCircle className="mr-2 h-5 w-5 text-primary" />
-                        Owner ID
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter owner ID for the queue" {...field} onChange={(e) => { field.onChange(e); setGeneratedTerraform(null);}} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </>
+              <FormField
+                control={form.control}
+                name="queueName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center text-base">
+                      <ListChecks className="mr-2 h-5 w-5 text-primary" />
+                      Queue Name
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter queue name" {...field} onChange={(e) => { field.onChange(e); setGeneratedTerraform(null);}}/>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             )}
+            
+            <FormField
+              control={form.control}
+              name="ownerId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center text-base">
+                    <UserCircle className="mr-2 h-5 w-5 text-primary" />
+                    Owner ID
+                    {isFetchingOwnerId && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                  </FormLabel>
+                  <div className="flex items-center space-x-2">
+                    <FormControl>
+                      <Input 
+                        placeholder={ownerIdPlaceholder}
+                        {...field} 
+                        readOnly={isFetchingOwnerId}
+                        onChange={(e) => { field.onChange(e); setGeneratedTerraform(null);}}
+                        className={field.value === "Error fetching ID" ? "border-destructive text-destructive" : ""}
+                        />
+                    </FormControl>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleFetchOwnerId}
+                      disabled={isFetchingOwnerId || !applicationType} // Disable if no app type selected
+                      className="shrink-0"
+                    >
+                      {isFetchingOwnerId ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      {isFetchingOwnerId ? "Fetching..." : "Fetch ID"}
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <Separator />
 
@@ -275,9 +346,9 @@ export default function ProfileConfiguratorForm() {
           type="submit" 
           onClick={form.handleSubmit(onSubmit)} 
           className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-ring"
-          disabled={form.formState.isSubmitting}
+          disabled={form.formState.isSubmitting || isFetchingOwnerId || !applicationType}
         >
-          {form.formState.isSubmitting ? "Generating..." : "Generate Terraform Code"}
+          {form.formState.isSubmitting ? "Generating..." : (isFetchingOwnerId ? "Fetching Owner ID..." : "Generate Terraform Code")}
         </Button>
       </CardFooter>
     </Card>
@@ -307,3 +378,5 @@ export default function ProfileConfiguratorForm() {
     </>
   );
 }
+
+    

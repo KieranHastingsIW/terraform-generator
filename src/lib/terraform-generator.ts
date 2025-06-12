@@ -77,7 +77,7 @@ resource "solacebroker_msg_vpn_authorization_group" "${sanitizedAuthProfileName}
       const resourceName = `${sanitizedAclProfileName}_publish_exception_${index}`;
       const exceptionResource = `
 resource "solacebroker_msg_vpn_acl_profile_publish_topic_exception" "${resourceName}" {
-  acl_profile_name                = "${input.aclProfileName}"
+  acl_profile_name                = solacebroker_msg_vpn_acl_profile.${sanitizedAclProfileName}.acl_profile_name
   msg_vpn_name                    = ${msgVpnNameValue}
   publish_topic_exception         = "${convertedTopicValue}"
   publish_topic_exception_syntax  = "smf"
@@ -90,7 +90,7 @@ resource "solacebroker_msg_vpn_acl_profile_publish_topic_exception" "${resourceN
       const resourceName = `${sanitizedAclProfileName}_subscribe_exception_${index}`;
       const exceptionResource = `
 resource "solacebroker_msg_vpn_acl_profile_subscribe_topic_exception" "${resourceName}" {
-  acl_profile_name                  = "${input.aclProfileName}"
+  acl_profile_name                  = solacebroker_msg_vpn_acl_profile.${sanitizedAclProfileName}.acl_profile_name
   msg_vpn_name                      = ${msgVpnNameValue}
   subscribe_topic_exception         = "${convertedTopicValue}"
   subscribe_topic_exception_syntax  = "smf"
@@ -123,7 +123,7 @@ resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
       const subscriptionResource = `
 resource "solacebroker_msg_vpn_queue_subscription" "${resourceName}" {
   msg_vpn_name        = ${msgVpnNameValue}
-  queue_name          = "${input.queueName}"
+  queue_name          = solacebroker_msg_vpn_queue.${sanitizedQueueName}.queue_name
   subscription_topic  = "${convertedTopicValue}"
 }`.trim();
       queueSubscriptionResources.push(subscriptionResource);
