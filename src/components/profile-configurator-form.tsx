@@ -3,7 +3,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy, Loader2 } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy, Loader2, Settings2 } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { profileConfiguratorSchema, type ProfileConfiguratorValues } from "@/lib/profile-configurator-schema";
 import { generateTerraformConfig, type TerraformGenerationOutput } from "@/lib/terraform-generator";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +33,7 @@ export default function ProfileConfiguratorForm() {
   const { toast } = useToast();
   const [generatedTerraform, setGeneratedTerraform] = React.useState<TerraformGenerationOutput | null>(null);
   const [isFetchingOwnerId, setIsFetchingOwnerId] = React.useState(false);
+  const [autoGenerateOwnerId, setAutoGenerateOwnerId] = React.useState(true);
 
   const form = useForm<ProfileConfiguratorValues>({
     resolver: zodResolver(profileConfiguratorSchema),
@@ -52,48 +55,65 @@ export default function ProfileConfiguratorForm() {
 
   const applicationType = form.watch("applicationType");
 
+  React.useEffect(() => {
+    const performOwnerIdFetch = async () => {
+      if (applicationType === "subscriber" && autoGenerateOwnerId) {
+        setIsFetchingOwnerId(true);
+        form.setValue("ownerId", "", { shouldValidate: true }); // Clear previous
+        try {
+          const clientId = await fetchNewClientId();
+          form.setValue("ownerId", clientId, { shouldValidate: true });
+          toast({
+            title: "Owner ID Fetched",
+            description: "Owner ID has been automatically populated from Keycloak.",
+            duration: 3000,
+          });
+        } catch (error) {
+          let errorMessage = "Failed to fetch Owner ID from Keycloak.";
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+          toast({
+            title: "Error Fetching Owner ID",
+            description: errorMessage,
+            variant: "destructive",
+            duration: 5000,
+          });
+          form.setValue("ownerId", "Error fetching ID", { shouldValidate: false });
+        } finally {
+          setIsFetchingOwnerId(false);
+        }
+      }
+    };
+    performOwnerIdFetch();
+  }, [applicationType, autoGenerateOwnerId, form, toast]);
+
+
   async function handleApplicationTypeChange(value: "publisher" | "subscriber" | undefined) {
     form.setValue("applicationType", value, { shouldValidate: true });
-    setGeneratedTerraform(null); // Clear previous results on type change
+    setGeneratedTerraform(null);
 
-    if (value === "subscriber") {
-      setIsFetchingOwnerId(true);
-      form.setValue("ownerId", "", { shouldValidate: true }); // Clear previous ownerId
-      try {
-        const clientId = await fetchNewClientId();
-        form.setValue("ownerId", clientId, { shouldValidate: true });
-        toast({
-          title: "Owner ID Fetched",
-          description: "Owner ID has been automatically populated from Keycloak.",
-          duration: 3000,
-        });
-      } catch (error) {
-        let errorMessage = "Failed to fetch Owner ID from Keycloak.";
-        if (error instanceof Error) {
-          errorMessage = error.message;
-        }
-        toast({
-          title: "Error Fetching Owner ID",
-          description: errorMessage,
-          variant: "destructive",
-          duration: 5000,
-        });
-        form.setValue("ownerId", "Error fetching ID", { shouldValidate: false }); // Indicate error in field
-      } finally {
-        setIsFetchingOwnerId(false);
-      }
-    } else {
+    if (value !== "subscriber") {
       form.setValue("queueName", "", { shouldValidate: true });
       form.setValue("ownerId", "", { shouldValidate: true });
     }
+    // Fetching logic is now handled by useEffect
   }
+
+  const handleAutoGenerateToggle = (checked: boolean) => {
+    setAutoGenerateOwnerId(checked);
+    setGeneratedTerraform(null);
+    if (!checked && applicationType === "subscriber") {
+      form.setValue("ownerId", "", { shouldValidate: true }); // Clear for manual input
+    }
+  };
 
   function onSubmit(values: ProfileConfiguratorValues) {
     console.log("Form values for Terraform generation:", values);
-    if (values.ownerId === "Error fetching ID") {
+    if (values.applicationType === "subscriber" && autoGenerateOwnerId && values.ownerId === "Error fetching ID") {
         toast({
             title: "Cannot Generate Terraform",
-            description: "Owner ID could not be fetched. Please check Keycloak configuration or try again.",
+            description: "Owner ID could not be fetched. Please check Keycloak configuration or toggle off auto-generation to enter manually.",
             variant: "destructive",
             duration: 5000,
         });
@@ -135,6 +155,11 @@ export default function ProfileConfiguratorForm() {
         });
     }
   };
+
+  let ownerIdPlaceholder = "Enter Owner ID";
+  if (applicationType === "subscriber" && autoGenerateOwnerId) {
+    ownerIdPlaceholder = isFetchingOwnerId ? "Fetching ID from Keycloak..." : "Auto-generated Owner ID";
+  }
 
 
   return (
@@ -239,6 +264,19 @@ export default function ProfileConfiguratorForm() {
                     </FormItem>
                   )}
                 />
+
+                <div className="flex items-center space-x-2 mt-4 mb-1">
+                  <Switch
+                    id="auto-generate-owner-id"
+                    checked={autoGenerateOwnerId}
+                    onCheckedChange={handleAutoGenerateToggle}
+                    aria-label="Toggle Owner ID auto-generation"
+                  />
+                  <Label htmlFor="auto-generate-owner-id" className="text-sm font-normal cursor-pointer">
+                    Auto-generate Owner ID
+                  </Label>
+                </div>
+                
                 <FormField
                   control={form.control}
                   name="ownerId"
@@ -246,15 +284,16 @@ export default function ProfileConfiguratorForm() {
                     <FormItem>
                       <FormLabel className="flex items-center text-base">
                         <UserCircle className="mr-2 h-5 w-5 text-primary" />
-                        Owner ID (auto-generated)
-                        {isFetchingOwnerId && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                        Owner ID
+                        {(isFetchingOwnerId && autoGenerateOwnerId) && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                       </FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder={isFetchingOwnerId ? "Fetching ID from Keycloak..." : "Auto-generated Owner ID"} 
+                          placeholder={ownerIdPlaceholder}
                           {...field} 
-                          readOnly 
-                          className={field.value === "Error fetching ID" ? "border-destructive text-destructive" : ""}
+                          readOnly={isFetchingOwnerId || (applicationType === "subscriber" && autoGenerateOwnerId)}
+                          onChange={(e) => { field.onChange(e); setGeneratedTerraform(null);}}
+                          className={field.value === "Error fetching ID" && autoGenerateOwnerId ? "border-destructive text-destructive" : ""}
                           />
                       </FormControl>
                       <FormMessage />
@@ -323,9 +362,9 @@ export default function ProfileConfiguratorForm() {
           type="submit" 
           onClick={form.handleSubmit(onSubmit)} 
           className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-ring"
-          disabled={form.formState.isSubmitting || isFetchingOwnerId}
+          disabled={form.formState.isSubmitting || (applicationType === "subscriber" && autoGenerateOwnerId && isFetchingOwnerId)}
         >
-          {form.formState.isSubmitting ? "Generating..." : (isFetchingOwnerId ? "Fetching Owner ID..." : "Generate Terraform Code")}
+          {form.formState.isSubmitting ? "Generating..." : ((applicationType === "subscriber" && autoGenerateOwnerId && isFetchingOwnerId) ? "Fetching Owner ID..." : "Generate Terraform Code")}
         </Button>
       </CardFooter>
     </Card>
@@ -355,3 +394,6 @@ export default function ProfileConfiguratorForm() {
     </>
   );
 }
+
+
+    
