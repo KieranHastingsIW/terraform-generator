@@ -3,7 +3,7 @@ import type { ProfileConfiguratorValues } from './profile-configurator-schema';
 
 export type TerraformGenerationOutput = {
   fullTerraformConfig: string;
-  ownerIdMapping?: string; // Content of the mapping file: "Instance X (Queue Y): OwnerID_Z"
+  ownerIdMapping?: string; // Content of the mapping file: "Instance X (Auth Profile Y): OwnerID_Z"
 };
 
 /**
@@ -48,7 +48,7 @@ function generatePaddedSuffix(instanceNumber: number, totalInstances: number): s
 
 export function generateTerraformConfig(
   input: ProfileConfiguratorValues,
-  fetchedOwnerIdsForInstances?: string[] // Used when numberOfInstances > 1 and type is subscriber
+  fetchedOwnerIdsForInstances?: string[] // Used when numberOfInstances > 1
 ): TerraformGenerationOutput {
   const numInstances = input.numberOfInstances ?? 1;
   let aggregatedFullTerraformConfig = '';
@@ -63,15 +63,12 @@ export function generateTerraformConfig(
     const instanceAuthProfileName = `${input.authProfileName}${instanceSuffix}`;
     const instanceQueueName = input.queueName ? `${input.queueName}${instanceSuffix}` : undefined;
     
-    // Determine the ownerId for the current instance
-    let currentOwnerId = input.ownerId; // Default for single instance or publisher
-    if (input.applicationType === "subscriber" && numInstances > 1 && fetchedOwnerIdsForInstances && fetchedOwnerIdsForInstances[i - 1]) {
-      currentOwnerId = fetchedOwnerIdsForInstances[i - 1];
-      if (currentOwnerId && !currentOwnerId.startsWith("ErrorFetchingID_")) { // Only map valid IDs
-         ownerIdMappingResult += `Instance ${i} (ACL: ${instanceAclProfileName}${instanceQueueName ? ", Queue: " + instanceQueueName : ""}): ${currentOwnerId}\n`;
-      } else if (currentOwnerId && currentOwnerId.startsWith("ErrorFetchingID_")) {
-         ownerIdMappingResult += `Instance ${i} (ACL: ${instanceAclProfileName}${instanceQueueName ? ", Queue: " + instanceQueueName : ""}): Error - ID not fetched\n`;
-      }
+    let currentOwnerIdForInstanceLogic = input.ownerId; // Default for single instance or if no batch IDs
+
+    if (numInstances > 1 && fetchedOwnerIdsForInstances && fetchedOwnerIdsForInstances[i - 1]) {
+      currentOwnerIdForInstanceLogic = fetchedOwnerIdsForInstances[i - 1];
+      const idStatus = currentOwnerIdForInstanceLogic.startsWith("ErrorFetchingID_") ? "Error - ID not fetched" : currentOwnerIdForInstanceLogic;
+      ownerIdMappingResult += `Instance ${i} (ACL: ${instanceAclProfileName}, Auth Profile: ${instanceAuthProfileName}): ${idStatus}\n`;
     }
 
 
@@ -132,7 +129,12 @@ resource "solacebroker_msg_vpn_acl_profile_subscribe_topic_exception" "${resourc
     let queueResource: string | undefined = undefined;
     const queueSubscriptionResources: string[] = [];
 
-    if (input.applicationType === "subscriber" && instanceQueueName && sanitizedQueueName && currentOwnerId && !currentOwnerId.startsWith("ErrorFetchingID_")) {
+    // Use currentOwnerIdForInstanceLogic for queue owner, if applicable
+    const ownerForQueue = (input.applicationType === "subscriber" && numInstances > 1 && fetchedOwnerIdsForInstances && fetchedOwnerIdsForInstances[i-1]) 
+                          ? fetchedOwnerIdsForInstances[i-1] 
+                          : input.ownerId;
+
+    if (input.applicationType === "subscriber" && instanceQueueName && sanitizedQueueName && ownerForQueue && !ownerForQueue.startsWith("ErrorFetchingID_")) {
       queueResource = `
 resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
   egress_enabled                                 = true
@@ -143,7 +145,7 @@ resource "solacebroker_msg_vpn_queue" "${sanitizedQueueName}" {
   max_msg_size                                   = 1e+06
   max_msg_spool_usage                            = 500
   msg_vpn_name                                   = ${msgVpnNameValue}
-  owner                                          = "${currentOwnerId}"
+  owner                                          = "${ownerForQueue}"
   queue_name                                     = "${instanceQueueName}"
 }`.trim();
 
@@ -183,3 +185,4 @@ resource "solacebroker_msg_vpn_queue_subscription" "${resourceName}" {
     ownerIdMapping: ownerIdMappingResult.trim() || undefined,
   };
 }
+
