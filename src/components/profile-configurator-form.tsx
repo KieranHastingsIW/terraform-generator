@@ -3,7 +3,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy, Loader2, RefreshCw, FileText, Server } from "lucide-react";
+import { Users, Shield, LockKeyhole, ListChecks, Tag, PlusCircle, XCircle, UserCircle, Copy, Loader2, RefreshCw, FileText, Server, TestTube2 } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,20 @@ import { Toaster } from "@/components/ui/toaster";
 import { fetchNewClientId } from "@/services/keycloak-service";
 
 
+function generateDummyId(length: number = 16): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
 export default function ProfileConfiguratorForm() {
   const { toast } = useToast();
   const [generatedTerraform, setGeneratedTerraform] = React.useState<TerraformGenerationOutput | null>(null);
   const [isFetchingOwnerId, setIsFetchingOwnerId] = React.useState(false);
+  const [isFetchingDummyId, setIsFetchingDummyId] = React.useState(false);
   const [fetchedOwnerIds, setFetchedOwnerIds] = React.useState<string[]>([]);
   const [ownerIdMappingContent, setOwnerIdMappingContent] = React.useState<string | null>(null);
 
@@ -74,11 +84,10 @@ export default function ProfileConfiguratorForm() {
 
       for (let i = 0; i < numInstancesToFetch; i++) {
         try {
-          // Individual toast for each attempt
-          const fetchToast = toast({ title: `Fetching Owner ID ${i + 1} of ${numInstancesToFetch}...`, duration: 15000 }); // Long duration, will be dismissed
+          const fetchToast = toast({ title: `Fetching Owner ID ${i + 1} of ${numInstancesToFetch}...`, duration: 15000 });
           const clientId = await fetchNewClientId();
           ids.push(clientId);
-          fetchToast.dismiss(); // Dismiss individual fetch toast on success
+          fetchToast.dismiss();
           toast({ title: `Fetched Owner ID ${i + 1}`, description: `ID: ${clientId.substring(0,8)}...`, duration: 2000});
 
         } catch (error) {
@@ -86,7 +95,7 @@ export default function ProfileConfiguratorForm() {
           let errorMessage = `Failed to fetch Owner ID ${i + 1}.`;
           if (error instanceof Error) errorMessage = error.message;
           toast({ title: "Error Fetching Owner ID", description: errorMessage, variant: "destructive", duration: 5000 });
-          ids.push(`ErrorFetchingID_${i + 1}`); // Push a placeholder for error
+          ids.push(`ErrorFetchingID_${i + 1}`);
         }
       }
       setFetchedOwnerIds(ids);
@@ -95,7 +104,7 @@ export default function ProfileConfiguratorForm() {
       } else {
         toast({ title: "Owner ID Fetching Incomplete", description: "Some Owner IDs could not be fetched. Check individual errors and generated mapping.", variant: "destructive", duration: 5000 });
       }
-    } else { // Single fetch logic (or publisher)
+    } else {
       try {
         const clientId = await fetchNewClientId();
         form.setValue("ownerId", clientId, { shouldValidate: true });
@@ -110,14 +119,44 @@ export default function ProfileConfiguratorForm() {
     setIsFetchingOwnerId(false);
   };
 
+  const handleFetchDummyOwnerIds = async () => {
+    setIsFetchingDummyId(true);
+    form.setValue("ownerId", "", { shouldValidate: true });
+    setFetchedOwnerIds([]);
+    setGeneratedTerraform(null);
+    setOwnerIdMappingContent(null);
+
+    const numInstancesToFetch = form.getValues("numberOfInstances") ?? 1;
+    const currentAppType = form.getValues("applicationType");
+
+    if (numInstancesToFetch > 1 && currentAppType === "subscriber") {
+      const ids: string[] = [];
+      toast({ title: "Batch Dummy Owner ID Generation Started", description: `Generating ${numInstancesToFetch} dummy Owner IDs...`, duration: 2000 });
+      for (let i = 0; i < numInstancesToFetch; i++) {
+        // Simulate a small delay for user feedback
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const dummyId = generateDummyId();
+        ids.push(dummyId);
+        toast({ title: `Generated Dummy ID ${i + 1}`, description: `ID: ${dummyId.substring(0,8)}...`, duration: 1500});
+      }
+      setFetchedOwnerIds(ids);
+      toast({ title: `${numInstancesToFetch} Dummy Owner IDs Generated`, description: "Dummy Owner IDs for all instances have been populated.", duration: 3000 });
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const dummyId = generateDummyId();
+      form.setValue("ownerId", dummyId, { shouldValidate: true });
+      toast({ title: "Dummy Owner ID Generated", description: "Dummy Owner ID has been populated.", duration: 3000 });
+    }
+    setIsFetchingDummyId(false);
+  };
+
 
   async function handleApplicationTypeChange(value: "publisher" | "subscriber" | undefined) {
     form.setValue("applicationType", value, { shouldValidate: true });
     setGeneratedTerraform(null);
     setOwnerIdMappingContent(null);
-    form.setValue("ownerId", ""); // Clear ownerId when app type changes
+    form.setValue("ownerId", "");
     setFetchedOwnerIds([]);
-
 
     if (value !== "subscriber") {
       form.setValue("queueName", "", { shouldValidate: true });
@@ -161,7 +200,6 @@ export default function ProfileConfiguratorForm() {
     }
 
     try {
-      // Pass fetchedOwnerIds only if it's relevant (multi-instance subscriber)
       const ownerIdsForGenerator = (applicationType === "subscriber" && numInstances > 1) ? fetchedOwnerIds : undefined;
       const tfOutput = generateTerraformConfig(values, ownerIdsForGenerator);
       setGeneratedTerraform(tfOutput);
@@ -196,8 +234,9 @@ export default function ProfileConfiguratorForm() {
     }
   };
   
-  const ownerIdPlaceholder = "Enter Owner ID or Fetch";
+  const ownerIdPlaceholder = "Enter Owner ID or Fetch/Generate";
   const isMultiInstanceSubscriber = applicationType === "subscriber" && numberOfInstances > 1;
+  const isFetchingAnyId = isFetchingOwnerId || isFetchingDummyId;
 
 
   return (
@@ -337,38 +376,56 @@ export default function ProfileConfiguratorForm() {
                 <FormItem>
                   <FormLabel className="flex items-center text-base">
                     <UserCircle className="mr-2 h-5 w-5 text-primary" />
-                    Owner ID {isMultiInstanceSubscriber ? "(Handled by Batch Fetch)" : ""}
-                    {isFetchingOwnerId && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                    Owner ID {isMultiInstanceSubscriber ? "(Handled by Batch Fetch/Generate)" : ""}
+                    {isFetchingAnyId && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                   </FormLabel>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
                     <FormControl>
                       <Input 
                         placeholder={ownerIdPlaceholder}
                         {...field} 
-                        readOnly={isFetchingOwnerId || isMultiInstanceSubscriber}
-                        disabled={isMultiInstanceSubscriber}
+                        readOnly={isFetchingAnyId || isMultiInstanceSubscriber}
+                        disabled={isMultiInstanceSubscriber} // Disable direct input for multi-instance subscriber
                         onChange={(e) => { field.onChange(e); onFormValueChange();}}
                         className={field.value === "Error fetching ID" ? "border-destructive text-destructive" : ""}
                         />
                     </FormControl>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleFetchOwnerId}
-                      disabled={isFetchingOwnerId || !applicationType}
-                      className="shrink-0"
-                    >
-                      {isFetchingOwnerId ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                      )}
-                      {isFetchingOwnerId ? "Fetching..." : (isMultiInstanceSubscriber ? `Fetch ${numberOfInstances} IDs` : "Fetch ID")}
-                    </Button>
+                    <div className="flex space-x-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleFetchOwnerId}
+                            disabled={isFetchingAnyId || !applicationType}
+                            className="shrink-0 flex-1 sm:flex-none"
+                            title={!applicationType ? "Select an Application Type first" : (isMultiInstanceSubscriber ? `Fetch ${numberOfInstances} real Owner IDs` : "Fetch real Owner ID")}
+                            >
+                            {isFetchingOwnerId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                            )}
+                            {isFetchingOwnerId ? "Fetching..." : (isMultiInstanceSubscriber ? `Fetch ${numberOfInstances} IDs` : "Fetch ID")}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleFetchDummyOwnerIds}
+                            disabled={isFetchingAnyId || !applicationType}
+                            className="shrink-0 flex-1 sm:flex-none"
+                            title={!applicationType ? "Select an Application Type first" : (isMultiInstanceSubscriber ? `Generate ${numberOfInstances} dummy Owner IDs` : "Generate dummy Owner ID")}
+                            >
+                            {isFetchingDummyId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <TestTube2 className="mr-2 h-4 w-4" />
+                            )}
+                            {isFetchingDummyId ? "Generating..." : (isMultiInstanceSubscriber ? `Dummy ${numberOfInstances} IDs` : "Dummy ID")}
+                        </Button>
+                    </div>
                   </div>
                   {isMultiInstanceSubscriber && fetchedOwnerIds.length > 0 && (
                     <p className="text-sm text-muted-foreground pt-1">
-                      {fetchedOwnerIds.filter(id => !id.startsWith("ErrorFetchingID_")).length} of {numberOfInstances} IDs fetched successfully. See mapping below.
+                      {fetchedOwnerIds.filter(id => !id.startsWith("ErrorFetchingID_")).length} of {numberOfInstances} IDs {isFetchingOwnerId ? 'fetched' : 'generated'} successfully. See mapping below.
                     </p>
                   )}
                   <FormMessage />
@@ -435,9 +492,9 @@ export default function ProfileConfiguratorForm() {
           type="submit" 
           onClick={form.handleSubmit(onSubmit)} 
           className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-ring"
-          disabled={form.formState.isSubmitting || isFetchingOwnerId || !applicationType}
+          disabled={form.formState.isSubmitting || isFetchingAnyId || !applicationType}
         >
-          {form.formState.isSubmitting ? "Generating..." : (isFetchingOwnerId ? "Fetching Owner ID(s)..." : "Generate Terraform Code")}
+          {form.formState.isSubmitting ? "Generating..." : (isFetchingAnyId ? "Fetching/Generating Owner ID(s)..." : "Generate Terraform Code")}
         </Button>
       </CardFooter>
     </Card>
@@ -493,3 +550,4 @@ export default function ProfileConfiguratorForm() {
     </>
   );
 }
+
